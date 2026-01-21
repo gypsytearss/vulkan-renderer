@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -20,6 +21,13 @@ struct QueueFamilyIndices
     }
 };
 
+struct SwapChainSupportDetails
+{
+    VkSurfaceCapabilitiesKHR capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR> presentModes;
+};
+
 class Application
 {
 public:
@@ -35,7 +43,15 @@ private:
 
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
     bool isDeviceSuitable(VkPhysicalDevice &device);
+    bool checkRequiredExtensionSupport(VkPhysicalDevice &device);
     void createLogicalDevice();
+
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
+    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats);
+    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes);
+    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
+
+    void createSwapChain();
 
     void createSurface();
 
@@ -46,6 +62,11 @@ private:
     VkInstance vkInstance;
     VkPhysicalDevice vkPhysicalDevice;
     VkDevice vkDevice;
+
+    VkSwapchainKHR vkSwapChain;
+    std::vector<VkImage> swapChainImages;
+    VkFormat vkSwapChainImageFormat;
+    VkExtent2D vkSwapChainExtent;
 
     VkQueue graphicsQueue;
 
