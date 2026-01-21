@@ -1,6 +1,7 @@
 #include <Application.hpp>
 
 #include <vector>
+#include <set>
 #include <stdexcept>
 
 void Application::run()
@@ -20,6 +21,7 @@ void Application::initVulkan()
     window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 
     createVkInstance();
+    createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
 }
@@ -71,6 +73,14 @@ void Application::createVkInstance()
     }
 }
 
+void Application::createSurface()
+{
+    if (glfwCreateWindowSurface(vkInstance, window, nullptr, &vkSurface) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create window surface!");
+    }
+}
+
 void Application::pickPhysicalDevice()
 {
     uint32_t deviceCount = 0;
@@ -97,7 +107,7 @@ bool Application::isDeviceSuitable(VkPhysicalDevice &device)
 {
     QueueFamilyIndices indices = findQueueFamilies(device);
 
-    return indices.graphicsFamily.has_value();
+    return indices.isComplete();
 }
 
 QueueFamilyIndices Application::findQueueFamilies(VkPhysicalDevice device)
@@ -113,6 +123,14 @@ QueueFamilyIndices Application::findQueueFamilies(VkPhysicalDevice device)
     int i = 0;
     for (const auto &queueFamily : queueFamilies)
     {
+        VkBool32 presentSupport = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, vkSurface, &presentSupport);
+
+        if (presentSupport)
+        {
+            indices.presentFamily = i;
+        }
+
         if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
         {
             indices.graphicsFamily = i;
@@ -127,21 +145,29 @@ void Application::createLogicalDevice()
 {
     QueueFamilyIndices indices = findQueueFamilies(vkPhysicalDevice);
 
-    VkDeviceQueueCreateInfo queueCreateInfo{};
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-    queueCreateInfo.queueCount = 1;
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos{};
+    std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
 
-    const auto queuePriority = 1.0f;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
+    auto queuePriority = 1.0f;
+    for (auto family : uniqueQueueFamilies)
+    {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = family;
+        queueCreateInfo.queueCount = 1;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        queueCreateInfos.push_back(queueCreateInfo);
+    }
 
     VkPhysicalDeviceFeatures deviceFeatures{};
 
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
-    createInfo.pQueueCreateInfos = &queueCreateInfo;
-    createInfo.queueCreateInfoCount = 1;
+    createInfo.pQueueCreateInfos = queueCreateInfos.data();
+    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 
     createInfo.pEnabledFeatures = &deviceFeatures;
     createInfo.enabledExtensionCount = 0;
@@ -163,6 +189,7 @@ void Application::mainLoop()
 
 void Application::cleanup()
 {
+    vkDestroySurfaceKHR(vkInstance, vkSurface, nullptr);
     vkDestroyDevice(vkDevice, nullptr);
     vkDestroyInstance(vkInstance, nullptr);
 

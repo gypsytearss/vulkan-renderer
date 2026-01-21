@@ -12,6 +12,12 @@ const uint32_t HEIGHT = 600;
 struct QueueFamilyIndices
 {
     std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> presentFamily;
+
+    bool isComplete()
+    {
+        return graphicsFamily.has_value() && presentFamily.has_value();
+    }
 };
 
 class Application
@@ -31,6 +37,8 @@ private:
     bool isDeviceSuitable(VkPhysicalDevice &device);
     void createLogicalDevice();
 
+    void createSurface();
+
     void initIndices();
 
     GLFWwindow *window;
@@ -40,4 +48,6 @@ private:
     VkDevice vkDevice;
 
     VkQueue graphicsQueue;
+
+    VkSurfaceKHR vkSurface;
 };
