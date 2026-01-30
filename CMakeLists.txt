@@ -24,6 +24,31 @@ endif()
 find_package(Vulkan REQUIRED)
 find_program(GLSLC glslc REQUIRED)
 
+# Shader compilation
+set(SHADER_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/shaders)
+set(SHADER_BINARY_DIR ${CMAKE_BINARY_DIR}/shaders)
+
+file(GLOB SHADER_SOURCES
+    "${SHADER_SOURCE_DIR}/*.vert"
+    "${SHADER_SOURCE_DIR}/*.frag"
+)
+
+file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
+
+foreach(SHADER ${SHADER_SOURCES})
+    get_filename_component(SHADER_NAME ${SHADER} NAME)
+    set(SHADER_OUTPUT ${SHADER_BINARY_DIR}/${SHADER_NAME}.spv)
+    add_custom_command(
+        OUTPUT ${SHADER_OUTPUT}
+        COMMAND ${GLSLC} ${SHADER} -o ${SHADER_OUTPUT}
+        DEPENDS ${SHADER}
+        COMMENT "Compiling ${SHADER_NAME}"
+    )
+    list(APPEND SHADER_OUTPUTS ${SHADER_OUTPUT})
+endforeach()
+
+add_custom_target(shaders DEPENDS ${SHADER_OUTPUTS})
+
 include(FetchContent)
 FetchContent_Declare(glfw GIT_REPOSITORY https://github.com/glfw/glfw.git GIT_TAG 3.4)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -34,6 +59,11 @@ FetchContent_MakeAvailable(glfw glm)
 
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/src/*.hpp")
 add_executable(${PROJECT_NAME} ${SOURCES})
+add_dependencies(${PROJECT_NAME} shaders)
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    SHADER_DIR="${SHADER_BINARY_DIR}"
+)
 
 target_include_directories(${PROJECT_NAME} PRIVATE 
     ${CMAKE_SOURCE_DIR}/src 
