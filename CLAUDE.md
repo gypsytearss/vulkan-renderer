@@ -1,0 +1,1 @@
+Build verification can be performed after any changes are made by running `cd build && ctest --output-on-failure`
