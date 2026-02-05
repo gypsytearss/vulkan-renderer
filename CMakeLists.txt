@@ -70,3 +70,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan glfw glm)
+
+# Testing
+enable_testing()
+add_test(NAME build_check
+    COMMAND ${PROJECT_NAME} --build-check
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
