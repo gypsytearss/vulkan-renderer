@@ -55,7 +55,11 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(glm GIT_REPOSITORY https://github.com/g-truc/glm.git GIT_TAG 1.0.1)
-FetchContent_MakeAvailable(glfw glm)
+FetchContent_Declare(cgltf
+    GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
+    GIT_TAG v1.14
+)
+FetchContent_MakeAvailable(glfw glm cgltf)
 
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/src/*.hpp")
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -63,10 +67,12 @@ add_dependencies(${PROJECT_NAME} shaders)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     SHADER_DIR="${SHADER_BINARY_DIR}"
+    ASSET_DIR="${CMAKE_SOURCE_DIR}/assets"
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE 
-    ${CMAKE_SOURCE_DIR}/src 
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${cgltf_SOURCE_DIR}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan glfw glm)

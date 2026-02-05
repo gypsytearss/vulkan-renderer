@@ -1,3 +1,6 @@
 vulkan-renderer.code-workspace
 build/
 .claude
+.cache
+Testing
+.DS_Store
