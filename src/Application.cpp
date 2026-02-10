@@ -1,6 +1,8 @@
 #include <Application.hpp>
 #include <GLBLoader.hpp>
 
+#include <imgui.h>
+
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -34,6 +36,7 @@ void Application::initVulkan()
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetCursorPosCallback(window, cursorPosCallback);
     glfwSetScrollCallback(window, scrollCallback);
+    glfwSetKeyCallback(window, keyCallback);
 
     createVkInstance();
     createSurface();
@@ -1010,6 +1013,13 @@ void Application::drawFrame()
     auto &uiParams = imguiManager.getParams();
     fluidSimulator.updateParams(uiParams.viscosity, uiParams.pressure, uiParams.flowRate);
 
+    // Handle reset request
+    if (imguiManager.wasResetRequested())
+    {
+        vkQueueWaitIdle(graphicsQueue);
+        fluidSimulator.reset();
+    }
+
     // Emit new particles (if not paused)
     float deltaTime = 1.0f / 60.0f; // Fixed timestep
     if (!uiParams.paused)
@@ -1164,26 +1174,33 @@ void Application::createDepthResources()
 
 void Application::loadModel()
 {
-    std::string modelPath = std::string(ASSET_DIR) + "/Duck.glb";
-    model = GLBLoader::loadGLB(modelPath);
+    // Create scene geometry: ground plane and pipe
+    Model ground = SceneGeometry::createGroundPlane(250.0f, 0.0f);
+    Model pipe = SceneGeometry::createPipe(8.0f, 30.0f, 24);
 
-    // Debug: print model info
-    std::cerr << "Loaded model: " << model.allVertices.size() << " vertices, "
-              << model.allIndices.size() << " indices" << std::endl;
-
-    // Compute bounding box
-    if (!model.allVertices.empty())
+    // Offset pipe to emitter position (above ground)
+    glm::vec3 pipeOffset(0.0f, 150.0f, 0.0f);
+    for (auto &v : pipe.allVertices)
     {
-        glm::vec3 minBounds = model.allVertices[0].pos;
-        glm::vec3 maxBounds = model.allVertices[0].pos;
-        for (const auto &v : model.allVertices)
-        {
-            minBounds = glm::min(minBounds, v.pos);
-            maxBounds = glm::max(maxBounds, v.pos);
-        }
-        std::cerr << "Bounding box: (" << minBounds.x << ", " << minBounds.y << ", " << minBounds.z
-                  << ") to (" << maxBounds.x << ", " << maxBounds.y << ", " << maxBounds.z << ")" << std::endl;
+        v.pos += pipeOffset;
     }
+
+    // Combine into single model
+    model = ground;
+
+    // Append pipe vertices and indices
+    uint32_t indexOffset = static_cast<uint32_t>(model.allVertices.size());
+    for (const auto &v : pipe.allVertices)
+    {
+        model.allVertices.push_back(v);
+    }
+    for (uint32_t idx : pipe.allIndices)
+    {
+        model.allIndices.push_back(idx + indexOffset);
+    }
+
+    std::cerr << "Created scene: " << model.allVertices.size() << " vertices, "
+              << model.allIndices.size() << " indices" << std::endl;
 }
 
 void Application::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
@@ -1226,4 +1243,39 @@ void Application::scrollCallback(GLFWwindow *window, double xoffset, double yoff
     (void)xoffset;
     auto *app = static_cast<Application *>(glfwGetWindowUserPointer(window));
     app->camera.zoom(static_cast<float>(yoffset));
+}
+
+void Application::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+    (void)scancode;
+    (void)mods;
+
+    // Let ImGui handle input first
+    if (ImGui::GetIO().WantCaptureKeyboard)
+        return;
+
+    auto *app = static_cast<Application *>(glfwGetWindowUserPointer(window));
+
+    if (action == GLFW_PRESS)
+    {
+        switch (key)
+        {
+        case GLFW_KEY_SPACE:
+            // Toggle pause
+            app->imguiManager.getParams().paused = !app->imguiManager.getParams().paused;
+            break;
+        case GLFW_KEY_R:
+            // Reset simulation
+            app->imguiManager.getParams().resetRequested = true;
+            break;
+        case GLFW_KEY_1:
+            // Sprite rendering mode
+            app->imguiManager.getParams().renderMode = 0;
+            break;
+        case GLFW_KEY_2:
+            // Screen-space fluid mode (when implemented)
+            app->imguiManager.getParams().renderMode = 1;
+            break;
+        }
+    }
 }

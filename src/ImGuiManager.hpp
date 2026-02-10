@@ -22,9 +22,17 @@ public:
         float flowRate = 500.0f;
         int renderMode = 0; // 0 = Sprites, 1 = Screen-Space Fluid
         bool paused = false;
+        bool resetRequested = false;
     };
 
     SimulationParams &getParams() { return params; }
+
+    bool wasResetRequested()
+    {
+        bool result = params.resetRequested;
+        params.resetRequested = false;
+        return result;
+    }
 
 private:
     void createDescriptorPool();

@@ -137,7 +137,7 @@ void ImGuiManager::renderUI()
 
     if (ImGui::Button("Reset Simulation"))
     {
-        // Will be connected to FluidSimulator later
+        params.resetRequested = true;
     }
 
     ImGui::End();

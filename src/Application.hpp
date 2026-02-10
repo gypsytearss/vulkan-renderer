@@ -17,6 +17,7 @@
 #include "ImGuiManager.hpp"
 #include "FluidSimulator.hpp"
 #include "ParticleRenderer.hpp"
+#include "SceneGeometry.hpp"
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -164,4 +165,5 @@ private:
     static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
     static void cursorPosCallback(GLFWwindow *window, double xpos, double ypos);
     static void scrollCallback(GLFWwindow *window, double xoffset, double yoffset);
+    static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 };
