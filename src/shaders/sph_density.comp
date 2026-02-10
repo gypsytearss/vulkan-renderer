@@ -1,0 +1,67 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+struct Particle {
+    vec4 position;  // xyz = position, w = density
+    vec4 velocity;  // xyz = velocity, w = pressure
+};
+
+layout(std430, binding = 0) readonly buffer ParticlesIn {
+    Particle particlesIn[];
+};
+
+layout(std430, binding = 1) buffer ParticlesOut {
+    Particle particlesOut[];
+};
+
+layout(binding = 2) uniform SimParams {
+    float deltaTime;
+    float smoothingRadius;
+    float restDensity;
+    float gasConstant;
+    float viscosity;
+    float gravity;
+    uint particleCount;
+    float particleRadius;
+    float boundaryMinX;
+    float boundaryMaxX;
+    float boundaryMinY;
+    float boundaryMaxY;
+    float boundaryMinZ;
+    float boundaryMaxZ;
+    float boundaryDamping;
+    float padding;
+};
+
+// Poly6 kernel for density
+float W_poly6(float r, float h) {
+    if (r > h) return 0.0;
+    float h2 = h * h;
+    float r2 = r * r;
+    float diff = h2 - r2;
+    float coeff = 315.0 / (64.0 * 3.14159265 * pow(h, 9.0));
+    return coeff * diff * diff * diff;
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= particleCount) return;
+
+    vec3 pi = particlesIn[i].position.xyz;
+    float density = 0.0;
+
+    // Sum contributions from all particles (O(n^2) - naive approach)
+    for (uint j = 0; j < particleCount; j++) {
+        vec3 pj = particlesIn[j].position.xyz;
+        float r = length(pi - pj);
+        density += W_poly6(r, smoothingRadius);
+    }
+
+    // Compute pressure using equation of state
+    float pressure = gasConstant * (density - restDensity);
+
+    // Write output
+    particlesOut[i].position = vec4(pi, density);
+    particlesOut[i].velocity = vec4(particlesIn[i].velocity.xyz, pressure);
+}

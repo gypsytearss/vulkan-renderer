@@ -1,7 +1,6 @@
 #include <Application.hpp>
 #include <GLBLoader.hpp>
 
-#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -30,6 +29,12 @@ void Application::initVulkan()
 
     window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 
+    // Set up input callbacks
+    glfwSetWindowUserPointer(window, this);
+    glfwSetMouseButtonCallback(window, mouseButtonCallback);
+    glfwSetCursorPosCallback(window, cursorPosCallback);
+    glfwSetScrollCallback(window, scrollCallback);
+
     createVkInstance();
     createSurface();
     pickPhysicalDevice();
@@ -46,6 +51,22 @@ void Application::initVulkan()
     createIndexBuffer();
     createCommandBuffers();
     createSyncObjects();
+
+    // Initialize ImGui
+    QueueFamilyIndices indices = findQueueFamilies(vkPhysicalDevice);
+    imguiManager.init(window, vkInstance, vkPhysicalDevice, vkDevice,
+                      indices.graphicsFamily.value(), graphicsQueue,
+                      renderPass, static_cast<uint32_t>(swapChainImages.size()));
+
+    // Initialize fluid simulator (uses graphics queue for compute - same family)
+    fluidSimulator.init(vkDevice, vkPhysicalDevice,
+                        indices.graphicsFamily.value(), graphicsQueue,
+                        MAX_PARTICLES);
+    fluidSimulator.setEmitterPosition(glm::vec3(0.0f, 150.0f, 0.0f));
+    fluidSimulator.setEmitterDirection(glm::vec3(0.0f, -1.0f, 0.0f));
+
+    // Initialize particle renderer
+    particleRenderer.init(vkDevice, renderPass, vkSwapChainExtent);
 }
 
 void Application::createVkInstance()
@@ -381,6 +402,10 @@ void Application::mainLoop()
 
 void Application::cleanup()
 {
+    particleRenderer.cleanup();
+    fluidSimulator.cleanup();
+    imguiManager.cleanup();
+
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
         vkDestroySemaphore(vkDevice, renderFinishedSemaphores[i], nullptr);
@@ -910,6 +935,14 @@ void Application::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
         throw std::runtime_error("failed to begin recording command buffer!");
     }
 
+    // Run fluid simulation compute shaders (if not paused and particles exist)
+    auto &uiParams = imguiManager.getParams();
+    if (!uiParams.paused && fluidSimulator.getParticleCount() > 0)
+    {
+        float deltaTime = 1.0f / 60.0f;
+        fluidSimulator.simulate(commandBuffer, deltaTime);
+    }
+
     VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     renderPassInfo.renderPass = renderPass;
@@ -934,12 +967,8 @@ void Application::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
     // Compute MVP matrix
-    static auto startTime = std::chrono::high_resolution_clock::now();
-    auto currentTime = std::chrono::high_resolution_clock::now();
-    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
-    glm::mat4 modelMat = glm::rotate(glm::mat4(1.0f), time * glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 100.0f, 300.0f), glm::vec3(0.0f, 80.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 modelMat = glm::mat4(1.0f); // No rotation - let camera control the view
+    glm::mat4 view = camera.getViewMatrix();
     glm::mat4 proj = glm::perspective(glm::radians(45.0f),
                                       vkSwapChainExtent.width / (float)vkSwapChainExtent.height,
                                       1.0f, 1000.0f);
@@ -951,6 +980,13 @@ void Application::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
     vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pushConstants);
 
     vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
+
+    // Render particles
+    particleRenderer.render(commandBuffer, fluidSimulator.getParticleBuffer(),
+                            fluidSimulator.getParticleCount(), view, proj);
+
+    // Render ImGui
+    imguiManager.render(commandBuffer);
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -969,6 +1005,24 @@ void Application::drawFrame()
     vkAcquireNextImageKHR(vkDevice, vkSwapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+
+    // Update fluid simulation parameters from UI
+    auto &uiParams = imguiManager.getParams();
+    fluidSimulator.updateParams(uiParams.viscosity, uiParams.pressure, uiParams.flowRate);
+
+    // Emit new particles (if not paused)
+    float deltaTime = 1.0f / 60.0f; // Fixed timestep
+    if (!uiParams.paused)
+    {
+        fluidSimulator.emitParticles(deltaTime, commandPool);
+    }
+
+    // Update ImGui stats
+    imguiManager.setParticleCount(fluidSimulator.getParticleCount());
+
+    // Start ImGui frame
+    imguiManager.newFrame();
+
     recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
     VkSubmitInfo submitInfo{};
@@ -1130,4 +1184,46 @@ void Application::loadModel()
         std::cerr << "Bounding box: (" << minBounds.x << ", " << minBounds.y << ", " << minBounds.z
                   << ") to (" << maxBounds.x << ", " << maxBounds.y << ", " << maxBounds.z << ")" << std::endl;
     }
+}
+
+void Application::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+{
+    (void)mods;
+    auto *app = static_cast<Application *>(glfwGetWindowUserPointer(window));
+
+    if (button == GLFW_MOUSE_BUTTON_LEFT)
+    {
+        if (action == GLFW_PRESS)
+        {
+            app->mousePressed = true;
+            glfwGetCursorPos(window, &app->lastMouseX, &app->lastMouseY);
+        }
+        else if (action == GLFW_RELEASE)
+        {
+            app->mousePressed = false;
+        }
+    }
+}
+
+void Application::cursorPosCallback(GLFWwindow *window, double xpos, double ypos)
+{
+    auto *app = static_cast<Application *>(glfwGetWindowUserPointer(window));
+
+    if (app->mousePressed)
+    {
+        double deltaX = xpos - app->lastMouseX;
+        double deltaY = ypos - app->lastMouseY;
+
+        app->camera.rotate(static_cast<float>(-deltaX), static_cast<float>(deltaY));
+
+        app->lastMouseX = xpos;
+        app->lastMouseY = ypos;
+    }
+}
+
+void Application::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+{
+    (void)xoffset;
+    auto *app = static_cast<Application *>(glfwGetWindowUserPointer(window));
+    app->camera.zoom(static_cast<float>(yoffset));
 }

@@ -31,6 +31,7 @@ set(SHADER_BINARY_DIR ${CMAKE_BINARY_DIR}/shaders)
 file(GLOB SHADER_SOURCES
     "${SHADER_SOURCE_DIR}/*.vert"
     "${SHADER_SOURCE_DIR}/*.frag"
+    "${SHADER_SOURCE_DIR}/*.comp"
 )
 
 file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
@@ -59,10 +60,24 @@ FetchContent_Declare(cgltf
     GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
     GIT_TAG v1.14
 )
-FetchContent_MakeAvailable(glfw glm cgltf)
+FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.90.1
+)
+FetchContent_MakeAvailable(glfw glm cgltf imgui)
+
+# ImGui sources (not a CMake project, need to add manually)
+set(IMGUI_SOURCES
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+)
 
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/src/*.hpp")
-add_executable(${PROJECT_NAME} ${SOURCES})
+add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
 add_dependencies(${PROJECT_NAME} shaders)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
@@ -73,6 +88,8 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${cgltf_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan glfw glm)

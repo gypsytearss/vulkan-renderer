@@ -13,6 +13,10 @@
 
 #include "Vertex.hpp"
 #include "Mesh.hpp"
+#include "Camera.hpp"
+#include "ImGuiManager.hpp"
+#include "FluidSimulator.hpp"
+#include "ParticleRenderer.hpp"
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -141,4 +145,23 @@ private:
 
     Model model;
     uint32_t indexCount = 0;
+
+    // Camera
+    Camera camera;
+
+    // ImGui
+    ImGuiManager imguiManager;
+
+    // Fluid simulation
+    FluidSimulator fluidSimulator;
+    ParticleRenderer particleRenderer;
+    static const uint32_t MAX_PARTICLES = 5000;
+    bool mousePressed = false;
+    double lastMouseX = 0.0;
+    double lastMouseY = 0.0;
+
+    // GLFW callbacks
+    static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
+    static void cursorPosCallback(GLFWwindow *window, double xpos, double ypos);
+    static void scrollCallback(GLFWwindow *window, double xoffset, double yoffset);
 };
