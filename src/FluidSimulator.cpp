@@ -22,13 +22,13 @@ void FluidSimulator::init(VkDevice device, VkPhysicalDevice physicalDevice,
 
     // Initialize default simulation parameters
     params.deltaTime = 0.016f;
-    params.smoothingRadius = 4.0f;
+    params.smoothingRadius = 6.0f;   // Larger = smoother forces
     params.restDensity = 1000.0f;
-    params.gasConstant = 200.0f;
-    params.viscosity = 50.0f;
+    params.gasConstant = 50.0f;      // Lower = less explosive pressure
+    params.viscosity = 100.0f;       // Higher = more damping
     params.gravity = -98.0f;
     params.particleCount = 0;
-    params.particleRadius = 1.0f;
+    params.particleRadius = 2.0f;    // Larger = more spacing
 
     // Boundary (simulation domain)
     params.boundaryMinX = -100.0f;
@@ -53,8 +53,7 @@ void FluidSimulator::cleanup()
         return;
 
     vkDestroyPipeline(device, densityPipeline, nullptr);
-    vkDestroyPipeline(device, forcesPipeline, nullptr);
-    vkDestroyPipeline(device, integratePipeline, nullptr);
+    vkDestroyPipeline(device, forcesIntegratePipeline, nullptr);
     vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
@@ -232,12 +231,10 @@ void FluidSimulator::createComputePipelines()
 
     // Load shader modules
     auto densityCode = readFile(std::string(SHADER_DIR) + "/sph_density.comp.spv");
-    auto forcesCode = readFile(std::string(SHADER_DIR) + "/sph_forces.comp.spv");
-    auto integrateCode = readFile(std::string(SHADER_DIR) + "/sph_integrate.comp.spv");
+    auto forcesIntegrateCode = readFile(std::string(SHADER_DIR) + "/sph_forces_integrate.comp.spv");
 
     VkShaderModule densityModule = createShaderModule(densityCode);
-    VkShaderModule forcesModule = createShaderModule(forcesCode);
-    VkShaderModule integrateModule = createShaderModule(integrateCode);
+    VkShaderModule forcesIntegrateModule = createShaderModule(forcesIntegrateCode);
 
     // Create pipelines
     VkComputePipelineCreateInfo pipelineInfo{};
@@ -255,24 +252,16 @@ void FluidSimulator::createComputePipelines()
         throw std::runtime_error("Failed to create density compute pipeline");
     }
 
-    // Forces pipeline
-    pipelineInfo.stage.module = forcesModule;
-    if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &forcesPipeline) != VK_SUCCESS)
+    // Forces + Integrate pipeline
+    pipelineInfo.stage.module = forcesIntegrateModule;
+    if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &forcesIntegratePipeline) != VK_SUCCESS)
     {
-        throw std::runtime_error("Failed to create forces compute pipeline");
-    }
-
-    // Integrate pipeline
-    pipelineInfo.stage.module = integrateModule;
-    if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &integratePipeline) != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to create integrate compute pipeline");
+        throw std::runtime_error("Failed to create forces+integrate compute pipeline");
     }
 
     // Clean up shader modules
     vkDestroyShaderModule(device, densityModule, nullptr);
-    vkDestroyShaderModule(device, forcesModule, nullptr);
-    vkDestroyShaderModule(device, integrateModule, nullptr);
+    vkDestroyShaderModule(device, forcesIntegrateModule, nullptr);
 }
 
 void FluidSimulator::reset()
@@ -292,10 +281,11 @@ void FluidSimulator::setEmitterDirection(const glm::vec3 &direction)
     emitterDirection = glm::normalize(direction);
 }
 
-void FluidSimulator::updateParams(float viscosity, float pressure, float newFlowRate)
+void FluidSimulator::updateParams(float viscosity, float pressure, float newFlowRate, float gravity)
 {
     params.viscosity = viscosity;
     params.gasConstant = pressure;
+    params.gravity = gravity;
     flowRate = newFlowRate;
 }
 
@@ -418,7 +408,7 @@ void FluidSimulator::simulate(VkCommandBuffer cmd, float deltaTime)
     memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-    // Pass 1: Compute density and pressure
+    // Pass 1: Compute density and pressure (in-place update)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, densityPipeline);
     vkCmdDispatch(cmd, groupCount, 1, 1);
 
@@ -427,17 +417,8 @@ void FluidSimulator::simulate(VkCommandBuffer cmd, float deltaTime)
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
 
-    // Pass 2: Compute forces
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, forcesPipeline);
-    vkCmdDispatch(cmd, groupCount, 1, 1);
-
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
-
-    // Pass 3: Integration and collision
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, integratePipeline);
+    // Pass 2: Forces + Integration (reads density from pass 1, writes to output buffer)
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, forcesIntegratePipeline);
     vkCmdDispatch(cmd, groupCount, 1, 1);
 
     // Final barrier for graphics read

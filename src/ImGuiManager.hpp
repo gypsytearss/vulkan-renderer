@@ -20,6 +20,8 @@ public:
         float viscosity = 50.0f;
         float pressure = 200.0f;
         float flowRate = 500.0f;
+        float gravity = -98.0f;
+        bool gravityEnabled = true;
         int renderMode = 0; // 0 = Sprites, 1 = Screen-Space Fluid
         bool paused = false;
         bool resetRequested = false;

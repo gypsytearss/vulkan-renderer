@@ -114,6 +114,14 @@ void ImGuiManager::renderUI()
 
     ImGui::Spacing();
 
+    ImGui::Checkbox("Gravity", &params.gravityEnabled);
+    if (params.gravityEnabled)
+    {
+        ImGui::SliderFloat("Gravity Strength", &params.gravity, -200.0f, 0.0f);
+    }
+
+    ImGui::Spacing();
+
     if (ImGui::Checkbox("Paused", &params.paused))
     {
         // Toggle pause state

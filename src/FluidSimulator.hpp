@@ -21,7 +21,7 @@ public:
     void setEmitterPosition(const glm::vec3 &position);
     void setEmitterDirection(const glm::vec3 &direction);
 
-    void updateParams(float viscosity, float pressure, float flowRate);
+    void updateParams(float viscosity, float pressure, float flowRate, float gravity);
     void emitParticles(float deltaTime, VkCommandPool commandPool);
     void simulate(VkCommandBuffer cmd, float deltaTime);
 
@@ -55,11 +55,10 @@ private:
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> descriptorSets; // One per buffer swap
 
-    // Compute pipelines (3-pass SPH)
+    // Compute pipelines (2-pass SPH)
     VkPipelineLayout computePipelineLayout = VK_NULL_HANDLE;
     VkPipeline densityPipeline = VK_NULL_HANDLE;
-    VkPipeline forcesPipeline = VK_NULL_HANDLE;
-    VkPipeline integratePipeline = VK_NULL_HANDLE;
+    VkPipeline forcesIntegratePipeline = VK_NULL_HANDLE;
 
     // Particle storage buffers (double-buffered)
     static const int BUFFER_COUNT = 2;

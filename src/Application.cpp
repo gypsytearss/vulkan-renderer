@@ -1011,7 +1011,8 @@ void Application::drawFrame()
 
     // Update fluid simulation parameters from UI
     auto &uiParams = imguiManager.getParams();
-    fluidSimulator.updateParams(uiParams.viscosity, uiParams.pressure, uiParams.flowRate);
+    float gravity = uiParams.gravityEnabled ? uiParams.gravity : 0.0f;
+    fluidSimulator.updateParams(uiParams.viscosity, uiParams.pressure, uiParams.flowRate, gravity);
 
     // Handle reset request
     if (imguiManager.wasResetRequested())
@@ -1206,6 +1207,11 @@ void Application::loadModel()
 void Application::mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
     (void)mods;
+
+    // Let ImGui handle input first
+    if (ImGui::GetIO().WantCaptureMouse)
+        return;
+
     auto *app = static_cast<Application *>(glfwGetWindowUserPointer(window));
 
     if (button == GLFW_MOUSE_BUTTON_LEFT)
@@ -1224,6 +1230,10 @@ void Application::mouseButtonCallback(GLFWwindow *window, int button, int action
 
 void Application::cursorPosCallback(GLFWwindow *window, double xpos, double ypos)
 {
+    // Let ImGui handle input first
+    if (ImGui::GetIO().WantCaptureMouse)
+        return;
+
     auto *app = static_cast<Application *>(glfwGetWindowUserPointer(window));
 
     if (app->mousePressed)
@@ -1241,6 +1251,11 @@ void Application::cursorPosCallback(GLFWwindow *window, double xpos, double ypos
 void Application::scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 {
     (void)xoffset;
+
+    // Let ImGui handle input first
+    if (ImGui::GetIO().WantCaptureMouse)
+        return;
+
     auto *app = static_cast<Application *>(glfwGetWindowUserPointer(window));
     app->camera.zoom(static_cast<float>(yoffset));
 }
