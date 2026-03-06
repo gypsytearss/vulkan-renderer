@@ -1,0 +1,163 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+struct Particle {
+    vec4 position;  // xyz = position, w = density
+    vec4 velocity;  // xyz = velocity, w = pressure
+};
+
+layout(std430, binding = 0) buffer ParticlesIn {
+    Particle particlesIn[];
+};
+
+layout(std430, binding = 1) buffer ParticlesOut {
+    Particle particlesOut[];
+};
+
+layout(std140, binding = 2) uniform SimParams {
+    float deltaTime;
+    float smoothingRadius;
+    float restDensity;
+    float gasConstant;
+    float viscosity;
+    float gravity;
+    uint particleCount;
+    float particleRadius;
+    float boundaryMinX;
+    float boundaryMaxX;
+    float boundaryMinY;
+    float boundaryMaxY;
+    float boundaryMinZ;
+    float boundaryMaxZ;
+    float boundaryDamping;
+    float padding;
+};
+
+// Spiky kernel gradient for pressure
+vec3 W_spiky_gradient(vec3 r, float h) {
+    float rLen = length(r);
+    if (rLen > h || rLen < 0.0001) return vec3(0.0);
+
+    float coeff = -45.0 / (3.14159265 * pow(h, 6.0));
+    float diff = h - rLen;
+    return coeff * diff * diff * normalize(r);
+}
+
+// Viscosity kernel Laplacian
+float W_viscosity_laplacian(float r, float h) {
+    if (r > h) return 0.0;
+    float coeff = 45.0 / (3.14159265 * pow(h, 6.0));
+    return coeff * (h - r);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= particleCount) return;
+
+    vec3 pi = particlesIn[i].position.xyz;
+    vec3 vi = particlesIn[i].velocity.xyz;
+    float densityI = particlesIn[i].position.w;
+    float pressureI = particlesIn[i].velocity.w;
+
+    vec3 pressureForce = vec3(0.0);
+    vec3 viscosityForce = vec3(0.0);
+
+    // Accumulate forces from neighbors
+    for (uint j = 0; j < particleCount; j++) {
+        if (i == j) continue;
+
+        vec3 pj = particlesIn[j].position.xyz;
+        vec3 vj = particlesIn[j].velocity.xyz;
+        float densityJ = particlesIn[j].position.w;
+        float pressureJ = particlesIn[j].velocity.w;
+
+        vec3 rij = pi - pj;
+        float r = length(rij);
+
+        // Skip particles that are too close (prevents instability)
+        float minDist = particleRadius * 0.5;
+        if (r < smoothingRadius && r > minDist && densityJ > 0.0001) {
+            // Pressure force (symmetric) with clamped density
+            float safeDensityJ = max(densityJ, restDensity * 0.1);
+            float pressureTerm = (pressureI + pressureJ) / (2.0 * safeDensityJ);
+            pressureForce -= pressureTerm * W_spiky_gradient(rij, smoothingRadius);
+
+            // Viscosity force
+            vec3 velocityDiff = vj - vi;
+            viscosityForce += (viscosity / safeDensityJ) * velocityDiff * W_viscosity_laplacian(r, smoothingRadius);
+        }
+    }
+
+    // Compute acceleration from forces (with clamping for stability)
+    vec3 acceleration = vec3(0.0);
+    float minDensity = restDensity * 0.1;  // Prevent division by tiny density
+    float effectiveDensity = max(densityI, minDensity);
+    acceleration = (pressureForce + viscosityForce) / effectiveDensity;
+
+    // Clamp acceleration to prevent instability
+    float maxAccel = 500.0;
+    float accelMag = length(acceleration);
+    if (accelMag > maxAccel) {
+        acceleration = acceleration * (maxAccel / accelMag);
+    }
+
+    // Apply gravity
+    acceleration.y += gravity;
+
+    // Update velocity
+    vec3 vel = vi + acceleration * deltaTime;
+
+    // Clamp velocity to prevent runaway speeds
+    float maxSpeed = 200.0;
+    float speed = length(vel);
+    if (speed > maxSpeed) {
+        vel = vel * (maxSpeed / speed);
+    }
+
+    // Update position
+    vec3 pos = pi + vel * deltaTime;
+
+    // Boundary collision with damping
+    float damping = boundaryDamping;
+
+    // Ground (Y min)
+    if (pos.y < boundaryMinY + particleRadius) {
+        pos.y = boundaryMinY + particleRadius;
+        vel.y = -vel.y * damping;
+    }
+
+    // Ceiling (Y max)
+    if (pos.y > boundaryMaxY - particleRadius) {
+        pos.y = boundaryMaxY - particleRadius;
+        vel.y = -vel.y * damping;
+    }
+
+    // Left wall (X min)
+    if (pos.x < boundaryMinX + particleRadius) {
+        pos.x = boundaryMinX + particleRadius;
+        vel.x = -vel.x * damping;
+    }
+
+    // Right wall (X max)
+    if (pos.x > boundaryMaxX - particleRadius) {
+        pos.x = boundaryMaxX - particleRadius;
+        vel.x = -vel.x * damping;
+    }
+
+    // Back wall (Z min)
+    if (pos.z < boundaryMinZ + particleRadius) {
+        pos.z = boundaryMinZ + particleRadius;
+        vel.z = -vel.z * damping;
+    }
+
+    // Front wall (Z max)
+    if (pos.z > boundaryMaxZ - particleRadius) {
+        pos.z = boundaryMaxZ - particleRadius;
+        vel.z = -vel.z * damping;
+    }
+
+    // Write output
+    particlesOut[i].position = vec4(pos, densityI);
+    particlesOut[i].velocity = vec4(vel, pressureI);
+}
